@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -143,20 +144,20 @@ func getLivecommentsHandler(c echo.Context) error {
         oi.image AS livestream_owner_icon_image
     FROM 
         livecomments lc
-    JOIN 
+    INNER JOIN 
         users u ON lc.user_id = u.id
-	JOIN
-		themes ut ON ut.user_id = u.id
-	JOIN
-		icons ui ON ui.user_id = u.id
-    JOIN 
+	LEFT JOIN
+		themes ut ON u.id = ut.user_id
+	LEFT JOIN
+		icons ui ON u.id = ui.user_id
+    INNER JOIN 
         livestreams ls ON lc.livestream_id = ls.id
-    JOIN
+    INNER JOIN
 		users o ON ls.user_id = o.id
-	JOIN
-		themes ot ON ot.user_id = o.id
-	JOIN
-		icons oi ON oi.user_id = o.id
+	LEFT JOIN
+		themes ot ON o.id = ot.user_id
+	LEFT JOIN
+		icons oi ON o.id = oi.user_id
     WHERE 
         lc.livestream_id = ?
     ORDER BY 
@@ -191,7 +192,22 @@ func getLivecommentsHandler(c echo.Context) error {
 	}
 
 	livecomments := make([]Livecomment, len(comments))
+
+	image, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
+	}
+	fallbackImageHash := fmt.Sprintf("%x", sha256.Sum256(image))
 	for i := range comments {
+		userIconHash := fallbackImageHash
+		if comments[i].UserIconImage != nil {
+			userIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage))
+		}
+		livestreamOwnerIconHash := fallbackImageHash
+		if comments[i].LivestreamOwnerIconImage != nil {
+			livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].LivestreamOwnerIconImage))
+		}
+
 		livecomments[i] = Livecomment{
 			ID:        comments[i].CommentID,
 			Comment:   comments[i].Comment,
@@ -206,7 +222,7 @@ func getLivecommentsHandler(c echo.Context) error {
 					ID:       comments[i].UserThemeID,
 					DarkMode: comments[i].UserDarkMode,
 				},
-				IconHash: fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage)),
+				IconHash: userIconHash,
 			},
 			Livestream: Livestream{
 				ID: comments[i].LivestreamID,
@@ -219,7 +235,7 @@ func getLivecommentsHandler(c echo.Context) error {
 						ID:       comments[i].LivestreamOwnerThemeID,
 						DarkMode: comments[i].LivestreamOwnerDarkMode,
 					},
-					IconHash: fmt.Sprintf("%x", sha256.Sum256(comments[i].LivestreamOwnerIconImage)),
+					IconHash: livestreamOwnerIconHash,
 				},
 				Title:        comments[i].LivestreamTitle,
 				Description:  comments[i].LivestreamDescription,
