@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -52,7 +56,82 @@ func getReactionsHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	query := "SELECT * FROM reactions WHERE livestream_id = ? ORDER BY created_at DESC"
+	type ReactionWithDetails struct {
+		ID                         int64  `db:"id"`
+		EmojiName                  string `db:"emoji_name"`
+		CreatedAt                  int64  `db:"created_at"`
+		UserID                     int64  `db:"user_id"`
+		UserName                   string `db:"user_name"`
+		UserDisplayName            string `db:"user_display_name"`
+		UserDescription            string `db:"user_description"`
+		UserThemeID                int64  `db:"user_theme_id"`
+		UserDarkMode               bool   `db:"user_dark_mode"`
+		UserIconImage              []byte `db:"user_icon_image"`
+		LivestreamID               int64  `db:"livestream_id"`
+		LivestreamOwnerID          int64  `db:"livestream_owner_id"`
+		LivestreamOwnerName        string `db:"livestream_owner_name"`
+		LivestreamOwnerDisplayName string `db:"livestream_owner_display_name"`
+		LivestreamOwnerDescription string `db:"livestream_owner_description"`
+		LivestreamOwnerThemeID     int64  `db:"livestream_owner_theme_id"`
+		LivestreamOwnerDarkMode    bool   `db:"livestream_owner_dark_mode"`
+		LivestreamOwnerIconImage   []byte `db:"livestream_owner_icon_image"`
+		LivestreamTitle            string `db:"livestream_title"`
+		LivestreamDescription      string `db:"livestream_description"`
+		LivestreamPlaylistURL      string `db:"livestream_playlist_url"`
+		LivestreamThumbnailURL     string `db:"livestream_thumbnail_url"`
+		LivestreamStartAt          int64  `db:"livestream_start_at"`
+		LivestreamEndAt            int64  `db:"livestream_end_at"`
+	}
+
+	reactions := []ReactionWithDetails{}
+	query := `
+    SELECT 
+        r.id,
+        r.emoji_name,
+        r.created_at,
+        u.id AS user_id,
+        u.name AS user_name,
+        u.display_name AS user_display_name,
+        u.description AS user_description,
+        ut.id AS user_theme_id,
+        ut.dark_mode AS user_dark_mode,
+        ui.image AS user_icon_image,
+        ls.id AS livestream_id,
+        ls.title AS livestream_title,
+        ls.description AS livestream_description,
+        ls.playlist_url AS livestream_playlist_url,
+        ls.thumbnail_url AS livestream_thumbnail_url,
+        ls.start_at AS livestream_start_at,
+        ls.end_at AS livestream_end_at,
+		o.id AS livestream_owner_id,
+        o.name AS livestream_owner_name,
+        o.display_name AS livestream_owner_display_name,
+        o.description AS livestream_owner_description,
+        ot.id AS livestream_owner_theme_id,
+        ot.dark_mode AS livestream_owner_dark_mode,
+        oi.image AS livestream_owner_icon_image
+    FROM 
+        reactions r
+    INNER JOIN 
+        users u ON r.user_id = u.id
+	LEFT JOIN
+		themes ut ON u.id = ut.user_id
+	LEFT JOIN
+		icons ui ON u.id = ui.user_id
+    INNER JOIN 
+        livestreams ls ON lc.livestream_id = ls.id
+    INNER JOIN
+		users o ON ls.user_id = o.id
+	LEFT JOIN
+		themes ot ON o.id = ot.user_id
+	LEFT JOIN
+		icons oi ON o.id = oi.user_id
+    WHERE 
+        r.livestream_id = ?
+    ORDER BY 
+        r.created_at DESC
+`
+
 	if c.QueryParam("limit") != "" {
 		limit, err := strconv.Atoi(c.QueryParam("limit"))
 		if err != nil {
@@ -61,26 +140,81 @@ func getReactionsHandler(c echo.Context) error {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
 
-	reactionModels := []ReactionModel{}
-	if err := tx.SelectContext(ctx, &reactionModels, query, livestreamID); err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "failed to get reactions")
+	err = tx.SelectContext(ctx, &reactions, query, livestreamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return c.JSON(http.StatusOK, []*ReactionWithDetails{})
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get reactions: "+err.Error())
 	}
 
-	reactions := make([]Reaction, len(reactionModels))
-	for i := range reactionModels {
-		reaction, err := fillReactionResponse(ctx, tx, reactionModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill reaction: "+err.Error())
-		}
-
-		reactions[i] = reaction
+	var tags []Tag
+	query = "SELECT tags.* FROM tags JOIN livestream_tags ON tags.id = livestream_tags.tag_id WHERE livestream_tags.livestream_id = ?"
+	err = tx.SelectContext(ctx, &tags, query, livestreamID)
+	if !errors.Is(err, sql.ErrNoRows) && err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
 
-	return c.JSON(http.StatusOK, reactions)
+	reactionsResponse := []Reaction{}
+	image, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
+	}
+	fallbackImageHash := fmt.Sprintf("%x", sha256.Sum256(image))
+	for i := range reactions {
+		userIconHash := fallbackImageHash
+		if reactions[i].UserIconImage != nil {
+			userIconHash = fmt.Sprintf("%x", sha256.Sum256(reactions[i].UserIconImage))
+		}
+		livestreamOwnerIconHash := fallbackImageHash
+		if reactions[i].LivestreamOwnerIconImage != nil {
+			livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(reactions[i].LivestreamOwnerIconImage))
+		}
+
+		reactionsResponse[i] = Reaction{
+			ID:        reactions[i].ID,
+			EmojiName: reactions[i].EmojiName,
+			CreatedAt: reactions[i].CreatedAt,
+			User: User{
+				ID:          reactions[i].UserID,
+				Name:        reactions[i].UserName,
+				DisplayName: reactions[i].UserDisplayName,
+				Description: reactions[i].UserDescription,
+				Theme: Theme{
+					ID:       reactions[i].UserThemeID,
+					DarkMode: reactions[i].UserDarkMode,
+				},
+				IconHash: userIconHash,
+			},
+			Livestream: Livestream{
+				ID: reactions[i].LivestreamID,
+				Owner: User{
+					ID:          reactions[i].LivestreamOwnerID,
+					Name:        reactions[i].LivestreamOwnerName,
+					DisplayName: reactions[i].LivestreamOwnerDisplayName,
+					Description: reactions[i].LivestreamOwnerDescription,
+					Theme: Theme{
+						ID:       reactions[i].LivestreamOwnerThemeID,
+						DarkMode: reactions[i].LivestreamOwnerDarkMode,
+					},
+					IconHash: livestreamOwnerIconHash,
+				},
+				Title:        reactions[i].LivestreamTitle,
+				Description:  reactions[i].LivestreamDescription,
+				PlaylistUrl:  reactions[i].LivestreamPlaylistURL,
+				ThumbnailUrl: reactions[i].LivestreamThumbnailURL,
+				StartAt:      reactions[i].LivestreamStartAt,
+				EndAt:        reactions[i].LivestreamEndAt,
+				Tags:         tags,
+			},
+		}
+	}
+
+	return c.JSON(http.StatusOK, reactionsResponse)
 }
 
 func postReactionHandler(c echo.Context) error {
