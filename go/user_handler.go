@@ -245,7 +245,6 @@ func registerHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted user id: "+err.Error())
 	}
-
 	userModel.ID = userID
 
 	themeModel := ThemeModel{
@@ -260,13 +259,24 @@ func registerHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, string(out)+": "+err.Error())
 	}
 
-	user, err := fillUserResponse(ctx, tx, userModel)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill user: "+err.Error())
-	}
-
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
+	}
+
+	image, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
+	}
+	user := User{
+		ID:          userModel.ID,
+		Name:        userModel.Name,
+		DisplayName: userModel.DisplayName,
+		Description: userModel.Description,
+		Theme: Theme{
+			ID:       themeModel.ID,
+			DarkMode: themeModel.DarkMode,
+		},
+		IconHash: fmt.Sprintf("%x", sha256.Sum256(image)),
 	}
 
 	return c.JSON(http.StatusCreated, user)
