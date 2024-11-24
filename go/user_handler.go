@@ -104,7 +104,7 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 	}
 
-	ifNoneMatch := c.Request().Header.Get("If-None-Match")
+	ifNoneMatch := c.Request().Header.Get("if-none-match")
 	if ifNoneMatch != "" {
 		var iconHash string
 		if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", user.ID); err != nil {
