@@ -103,7 +103,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 	query := `
 		SELECT
 		    u.id AS user_id,
-		    COUNT(r.id) AS reaction_count,
+		    COUNT(r.id) AS reaction_count
 		FROM
 		    users u
 		INNER JOIN livestreams l ON l.user_id = u.id
@@ -125,7 +125,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 		UserID   int64 `db:"user_id"`
 		TotalTip int64 `db:"total_tip"`
 	}
-	query = `	
+	query = `
 		SELECT
 		    u.id AS user_id,
 		    IFNULL(SUM(l2.tip), 0) AS total_tip
