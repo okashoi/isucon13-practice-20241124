@@ -119,7 +119,7 @@ func getReactionsHandler(c echo.Context) error {
 	LEFT JOIN
 		icons ui ON u.id = ui.user_id
     INNER JOIN 
-        livestreams ls ON lc.livestream_id = ls.id
+        livestreams ls ON r.livestream_id = ls.id
     INNER JOIN
 		users o ON ls.user_id = o.id
 	LEFT JOIN
