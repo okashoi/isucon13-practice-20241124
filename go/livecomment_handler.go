@@ -133,7 +133,7 @@ func getLivecommentsHandler(c echo.Context) error {
         ls.thumbnail_url AS livestream_thumbnail_url,
         ls.start_at AS livestream_start_at,
         ls.end_at AS livestream_end_at,
-		o.id AS _id,
+		o.id AS livestream_owner_id,
         o.name AS livestream_owner_name,
         o.display_name AS livestream_owner_display_name,
         o.description AS livestream_owner_description,
