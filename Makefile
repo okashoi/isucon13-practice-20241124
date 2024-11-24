@@ -3,6 +3,7 @@
 gogo: stop-services build truncate-logs start-services
 
 stop-services:
+	sudo systemctl stop dnsdist.service
 	sudo systemctl stop pdns.service
 	sudo systemctl stop nginx
 	sudo systemctl stop isupipe-go.service
@@ -23,6 +24,7 @@ start-services:
 	sudo systemctl start isupipe-go.service
 	sudo systemctl start nginx
 	sudo systemctl start pdns.service
+	sudo systemctl start dnsdist.service
 
 kataribe: timestamp=$(shell TZ=Asia/Tokyo date "+%Y%m%d-%H%M%S")
 kataribe:
