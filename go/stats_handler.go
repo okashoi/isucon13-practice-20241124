@@ -168,7 +168,7 @@ func getUserStatisticsHandler(c echo.Context) error {
 	// ライブコメント数、合計視聴者数
 	var totalLivecomments int64
 	var viewersCount int64
-	if err := tx.GetContext(ctx, totalLivecomments, "SELECT COUNT(lc.id) FROM livecomments lc INNER JOIN livestreams ls ON lc.livestream_id = ls.id WHERE ls.user_id = ?", user.ID); err != nil {
+	if err := tx.GetContext(ctx, &totalLivecomments, "SELECT COUNT(lc.id) FROM livecomments lc INNER JOIN livestreams ls ON lc.livestream_id = ls.id WHERE ls.user_id = ?", user.ID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments count: "+err.Error())
 	}
 	if err := tx.GetContext(ctx, &viewersCount, "SELECT COUNT(lvh.id) FROM livestream_viewers_history lvh INNER JOIN livestreams ls ON lvh.livestream_id = ls.id WHERE ls.user_id = ?", user.ID); err != nil {
