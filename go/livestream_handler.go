@@ -263,12 +263,13 @@ func getMyLivestreamsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
 	livestreams := make([]Livestream, len(livestreamModels))
-	for i := range livestreamModels {
-		livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModels[i])
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
-		}
-		livestreams[i] = livestream
+	livestreamModelsValue := make([]LivestreamModel, len(livestreamModels))
+	for i, model := range livestreamModels {
+		livestreamModelsValue[i] = *model
+	}
+	livestreams, err = fillLivestreamResponses(ctx, tx, livestreamModelsValue)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
 	}
 
 	if err := tx.Commit(); err != nil {
