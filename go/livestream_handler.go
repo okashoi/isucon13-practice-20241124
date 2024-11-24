@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -415,9 +416,8 @@ func getLivestreamHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	livestreamModel := LivestreamModel{}
-	err = tx.GetContext(ctx, &livestreamModel, "SELECT * FROM livestreams WHERE id = ?", livestreamID)
-	if errors.Is(err, sql.ErrNoRows) {
+	livestreamModel, err := getLivestream(ctx, tx, livestreamID)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "not found livestream that has the given id")
 	}
 	if err != nil {
@@ -454,8 +454,8 @@ func getLivecommentReportsHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var livestreamModel LivestreamModel
-	if err := tx.GetContext(ctx, &livestreamModel, "SELECT * FROM livestreams WHERE id = ?", livestreamID); err != nil {
+	livestreamModel, err := getLivestream(ctx, tx, livestreamID)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestream: "+err.Error())
 	}
 
@@ -684,4 +684,20 @@ func fillLivestreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels 
 	}
 
 	return livestrems, nil
+}
+
+var (
+	livestreamCache = sync.Map{}
+)
+
+func getLivestream(ctx context.Context, tx *sqlx.Tx, livestreamID int) (LivestreamModel, error) {
+	if livestream, ok := livestreamCache.Load(livestreamID); ok {
+		return livestream.(LivestreamModel), nil
+	}
+	livestream := LivestreamModel{}
+	if err := tx.GetContext(ctx, &livestream, "SELECT * FROM livestreams WHERE id = ?", livestreamID); err != nil {
+		return LivestreamModel{}, err
+	}
+	livestreamCache.Store(livestreamID, livestream)
+	return livestream, nil
 }
