@@ -87,18 +87,7 @@ func getLivecommentsHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	type CommentWithDetails struct {
-		CommentID                  int64  `db:"comment_id"`
-		Comment                    string `db:"comment"`
-		Tip                        int64  `db:"tip"`
-		CreatedAt                  int64  `db:"created_at"`
-		UserID                     int64  `db:"user_id"`
-		UserName                   string `db:"user_name"`
-		UserDisplayName            string `db:"user_display_name"`
-		UserDescription            string `db:"user_description"`
-		UserThemeID                int64  `db:"user_theme_id"`
-		UserDarkMode               bool   `db:"user_dark_mode"`
-		UserIconImage              []byte `db:"user_icon_image"`
+	type LivestreamWithDetail struct {
 		LivestreamID               int64  `db:"livestream_id"`
 		LivestreamOwnerID          int64  `db:"livestream_owner_id"`
 		LivestreamOwnerName        string `db:"livestream_owner_name"`
@@ -114,21 +103,9 @@ func getLivecommentsHandler(c echo.Context) error {
 		LivestreamStartAt          int64  `db:"livestream_start_at"`
 		LivestreamEndAt            int64  `db:"livestream_end_at"`
 	}
-
-	comments := []CommentWithDetails{}
+	livestream := LivestreamWithDetail{}
 	query := `
     SELECT 
-        lc.id AS comment_id,
-        lc.comment,
-        lc.tip,
-        lc.created_at,
-        u.id AS user_id,
-        u.name AS user_name,
-        u.display_name AS user_display_name,
-        u.description AS user_description,
-        ut.id AS user_theme_id,
-        ut.dark_mode AS user_dark_mode,
-        ui.image AS user_icon_image,
         ls.id AS livestream_id,
         ls.title AS livestream_title,
         ls.description AS livestream_description,
@@ -144,15 +121,7 @@ func getLivecommentsHandler(c echo.Context) error {
         ot.dark_mode AS livestream_owner_dark_mode,
         oi.image AS livestream_owner_icon_image
     FROM 
-        livecomments lc
-    INNER JOIN 
-        users u ON lc.user_id = u.id
-	LEFT JOIN
-		themes ut ON u.id = ut.user_id
-	LEFT JOIN
-		icons ui ON u.id = ui.user_id
-    INNER JOIN 
-        livestreams ls ON lc.livestream_id = ls.id
+        livestreams ls
     INNER JOIN
 		users o ON ls.user_id = o.id
 	LEFT JOIN
@@ -160,11 +129,53 @@ func getLivecommentsHandler(c echo.Context) error {
 	LEFT JOIN
 		icons oi ON o.id = oi.user_id
     WHERE 
+        ls.id = ?
+`
+	err = tx.GetContext(ctx, &livestream, query, livestreamID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestream: "+err.Error())
+	}
+
+	type CommentWithDetails struct {
+		CommentID       int64  `db:"comment_id"`
+		Comment         string `db:"comment"`
+		Tip             int64  `db:"tip"`
+		CreatedAt       int64  `db:"created_at"`
+		UserID          int64  `db:"user_id"`
+		UserName        string `db:"user_name"`
+		UserDisplayName string `db:"user_display_name"`
+		UserDescription string `db:"user_description"`
+		UserThemeID     int64  `db:"user_theme_id"`
+		UserDarkMode    bool   `db:"user_dark_mode"`
+		UserIconImage   []byte `db:"user_icon_image"`
+	}
+	comments := []CommentWithDetails{}
+	query = `
+    SELECT 
+        lc.id AS comment_id,
+        lc.comment,
+        lc.tip,
+        lc.created_at,
+        u.id AS user_id,
+        u.name AS user_name,
+        u.display_name AS user_display_name,
+        u.description AS user_description,
+        ut.id AS user_theme_id,
+        ut.dark_mode AS user_dark_mode,
+        ui.image AS user_icon_image
+    FROM 
+        livecomments lc
+    INNER JOIN 
+        users u ON lc.user_id = u.id
+	LEFT JOIN
+		themes ut ON u.id = ut.user_id
+	LEFT JOIN
+		icons ui ON u.id = ui.user_id
+    WHERE 
         lc.livestream_id = ?
     ORDER BY 
         lc.created_at DESC
 `
-
 	if c.QueryParam("limit") != "" {
 		limit, err := strconv.Atoi(c.QueryParam("limit"))
 		if err != nil {
@@ -198,15 +209,17 @@ func getLivecommentsHandler(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
 	}
+
 	fallbackImageHash := fmt.Sprintf("%x", sha256.Sum256(image))
+	livestreamOwnerIconHash := fallbackImageHash
+	if livestream.LivestreamOwnerIconImage != nil {
+		livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(livestream.LivestreamOwnerIconImage))
+	}
+
 	for i := range comments {
 		userIconHash := fallbackImageHash
 		if comments[i].UserIconImage != nil {
 			userIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage))
-		}
-		livestreamOwnerIconHash := fallbackImageHash
-		if comments[i].LivestreamOwnerIconImage != nil {
-			livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].LivestreamOwnerIconImage))
 		}
 
 		livecomments[i] = Livecomment{
@@ -226,24 +239,24 @@ func getLivecommentsHandler(c echo.Context) error {
 				IconHash: userIconHash,
 			},
 			Livestream: Livestream{
-				ID: comments[i].LivestreamID,
+				ID: livestream.LivestreamID,
 				Owner: User{
-					ID:          comments[i].LivestreamOwnerID,
-					Name:        comments[i].LivestreamOwnerName,
-					DisplayName: comments[i].LivestreamOwnerDisplayName,
-					Description: comments[i].LivestreamOwnerDescription,
+					ID:          livestream.LivestreamOwnerID,
+					Name:        livestream.LivestreamOwnerName,
+					DisplayName: livestream.LivestreamOwnerDisplayName,
+					Description: livestream.LivestreamOwnerDescription,
 					Theme: Theme{
-						ID:       comments[i].LivestreamOwnerThemeID,
-						DarkMode: comments[i].LivestreamOwnerDarkMode,
+						ID:       livestream.LivestreamOwnerThemeID,
+						DarkMode: livestream.LivestreamOwnerDarkMode,
 					},
 					IconHash: livestreamOwnerIconHash,
 				},
-				Title:        comments[i].LivestreamTitle,
-				Description:  comments[i].LivestreamDescription,
-				PlaylistUrl:  comments[i].LivestreamPlaylistURL,
-				ThumbnailUrl: comments[i].LivestreamThumbnailURL,
-				StartAt:      comments[i].LivestreamStartAt,
-				EndAt:        comments[i].LivestreamEndAt,
+				Title:        livestream.LivestreamTitle,
+				Description:  livestream.LivestreamDescription,
+				PlaylistUrl:  livestream.LivestreamPlaylistURL,
+				ThumbnailUrl: livestream.LivestreamThumbnailURL,
+				StartAt:      livestream.LivestreamStartAt,
+				EndAt:        livestream.LivestreamEndAt,
 				Tags:         tags,
 			},
 		}
