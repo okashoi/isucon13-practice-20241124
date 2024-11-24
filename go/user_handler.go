@@ -118,7 +118,7 @@ func getIconHandler(c echo.Context) error {
 	}
 
 	var user UserWithIconHash
-	if err := tx.GetContext(ctx, &user, "SELECT u.id AS user_id, i.image AS image FROM users u LEFT JOIN icons i ON u.id = i.user_id WHERE u,name = ?", username); err != nil {
+	if err := tx.GetContext(ctx, &user, "SELECT u.id AS user_id, i.image AS image FROM users u LEFT JOIN icons i ON u.id = i.user_id WHERE u.name = ?", username); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "not found user that has the given username")
 		}
