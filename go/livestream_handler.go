@@ -470,7 +470,9 @@ func getLivecommentReportsHandler(c echo.Context) error {
 
 	var reportModels []*LivecommentReportModel
 	if err := tx.SelectContext(ctx, &reportModels, "SELECT * FROM livecomment_reports WHERE livestream_id = ?", livestreamID); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomment reports: "+err.Error())
+		if !errors.Is(err, sql.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomment reports: "+err.Error())
+		}
 	}
 
 	reports := make([]LivecommentReport, len(reportModels))
