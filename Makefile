@@ -9,6 +9,7 @@ stop-services:
 	ssh isucon-s2 "sudo systemctl stop isupipe-go.service"
 	sudo systemctl stop isupipe-go.service
 	sudo systemctl stop mysql
+	ssh isucon-s3 "sudo systemctl stop mysql"
 
 build:
 	cd go/ && make build
@@ -23,6 +24,7 @@ truncate-logs:
 
 start-services:
 	sudo systemctl start mysql
+	ssh isucon-s3 "sudo systemctl start mysql" 
 	ssh isucon-s2 "sudo systemctl start isupipe-go.service"
 	sudo systemctl start isupipe-go.service
 	sudo systemctl start nginx
