@@ -104,6 +104,18 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
 	}
 
+	var iconHash string
+	if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", user.ID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get icon hash: "+err.Error())
+		}
+	}
+	if c.Request().Header.Get("If-None-Match") == iconHash {
+		c.Logger().Infof("icon hash matched")
+		return c.NoContent(http.StatusNotModified)
+	}
+	c.Logger().Infof("icon hash not matched: %s", iconHash)
+
 	var image []byte
 	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", user.ID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -414,17 +426,20 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		return User{}, err
 	}
 
-	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userModel.ID); err != nil {
+	var iconHash string
+	if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", userModel.ID); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return User{}, err
 		}
-		image, err = os.ReadFile(fallbackImage)
+	}
+
+	if iconHash == "" {
+		image, err := os.ReadFile(fallbackImage)
 		if err != nil {
 			return User{}, err
 		}
+		iconHash = fmt.Sprintf("%x", sha256.Sum256(image))
 	}
-	iconHash := sha256.Sum256(image)
 
 	user := User{
 		ID:          userModel.ID,
@@ -435,7 +450,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 			ID:       themeModel.ID,
 			DarkMode: themeModel.DarkMode,
 		},
-		IconHash: fmt.Sprintf("%x", iconHash),
+		IconHash: iconHash,
 	}
 
 	return user, nil
