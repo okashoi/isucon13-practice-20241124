@@ -202,7 +202,7 @@ func searchLivestreamsHandler(c echo.Context) error {
 			livestreamIDs = append(livestreamIDs, keyTaggedLivestream.LivestreamID)
 		}
 
-		query, args, err := sqlx.In("SELECT * FROM livestreams WHERE id IN (?)", livestreamIDs)
+		query, args, err := sqlx.In("SELECT * FROM livestreams WHERE id IN (?) ORDER BY id DESC", livestreamIDs)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to construct IN query: "+err.Error())
 		}
@@ -227,14 +227,13 @@ func searchLivestreamsHandler(c echo.Context) error {
 		}
 	}
 
-	livestreamModelsValue := make([]LivestreamModel, len(livestreamModels))
-	for i, model := range livestreamModels {
-		livestreamModelsValue[i] = *model
-	}
 	livestreams := make([]Livestream, len(livestreamModels))
-	livestreams, err = fillLivestreamResponses(ctx, tx, livestreamModelsValue)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
+	for i := range livestreamModels {
+		livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModels[i])
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livestream: "+err.Error())
+		}
+		livestreams[i] = livestream
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -539,106 +538,4 @@ func fillLivestreamResponse(ctx context.Context, tx *sqlx.Tx, livestreamModel Li
 		EndAt:        livestreamModel.EndAt,
 	}
 	return livestream, nil
-}
-
-func fillLivestreamResponses(ctx context.Context, tx *sqlx.Tx, livestreamModels []LivestreamModel) ([]Livestream, error) {
-	var livestreams []Livestream
-
-	// Collect all user IDs and livestream IDs
-	userIDs := make([]int64, len(livestreamModels))
-	livestreamIDs := make([]int64, len(livestreamModels))
-	for i, livestreamModel := range livestreamModels {
-		userIDs[i] = livestreamModel.UserID
-		livestreamIDs[i] = livestreamModel.ID
-	}
-
-	// Fetch all users in one query
-	var userModels []UserModel
-	query, args, err := sqlx.In("SELECT * FROM users WHERE id IN (?)", userIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	if err := tx.SelectContext(ctx, &userModels, query, args...); err != nil {
-		return nil, err
-	}
-
-	// Create a map of userID to UserModel
-	userMap := make(map[int64]UserModel)
-	for _, userModel := range userModels {
-		userMap[userModel.ID] = userModel
-	}
-
-	// Fetch all tags in one query
-	var livestreamTagModels []LivestreamTagModel
-	query, args, err = sqlx.In("SELECT * FROM livestream_tags WHERE livestream_id IN (?)", livestreamIDs)
-	if err != nil {
-		return nil, err
-	}
-	query = tx.Rebind(query)
-	if err := tx.SelectContext(ctx, &livestreamTagModels, query, args...); err != nil {
-		return nil, err
-	}
-
-	// Create a map of livestreamID to tagIDs
-	livestreamTagMap := make(map[int64][]int64)
-	for _, tagModel := range livestreamTagModels {
-		livestreamTagMap[tagModel.LivestreamID] = append(livestreamTagMap[tagModel.LivestreamID], tagModel.TagID)
-	}
-
-	// Fetch all tags in one query
-	var tags []Tag
-	tagIDs := make([]int64, 0)
-	for _, ids := range livestreamTagMap {
-		tagIDs = append(tagIDs, ids...)
-	}
-	if len(tagIDs) > 0 {
-		query, args, err = sqlx.In("SELECT id, name FROM tags WHERE id IN (?)", tagIDs)
-		if err != nil {
-			return nil, err
-		}
-		query = tx.Rebind(query)
-		if err := tx.SelectContext(ctx, &tags, query, args...); err != nil {
-			return nil, err
-		}
-	}
-
-	// Create a map of tagID to Tag
-	tagMap := make(map[int64]Tag)
-	for _, tag := range tags {
-		tagMap[tag.ID] = tag
-	}
-
-	// Construct the Livestream responses
-	for _, livestreamModel := range livestreamModels {
-		ownerModel, ok := userMap[livestreamModel.UserID]
-		if !ok {
-			return nil, fmt.Errorf("user not found for id %d", livestreamModel.UserID)
-		}
-		owner, err := fillUserResponse(ctx, tx, ownerModel)
-		if err != nil {
-			return nil, err
-		}
-
-		tagIDs := livestreamTagMap[livestreamModel.ID]
-		var tags []Tag
-		for _, tagID := range tagIDs {
-			tags = append(tags, tagMap[tagID])
-		}
-
-		livestream := Livestream{
-			ID:           livestreamModel.ID,
-			Owner:        owner,
-			Title:        livestreamModel.Title,
-			Tags:         tags,
-			Description:  livestreamModel.Description,
-			PlaylistUrl:  livestreamModel.PlaylistUrl,
-			ThumbnailUrl: livestreamModel.ThumbnailUrl,
-			StartAt:      livestreamModel.StartAt,
-			EndAt:        livestreamModel.EndAt,
-		}
-		livestreams = append(livestreams, livestream)
-	}
-
-	return livestreams, nil
 }
