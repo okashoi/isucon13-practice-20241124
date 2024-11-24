@@ -446,11 +446,10 @@ func verifyUserSession(c echo.Context) error {
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
-	tc, ok := userThemeCache.Load(userModel.ID)
-	if !ok {
-		return User{}, fmt.Errorf("theme not found for user %d", userModel.ID)
+	themeModel, err := getUserTheme(userModel.ID)
+	if err != nil {
+		return User{}, err
 	}
-	themeModel := tc.(ThemeModel)
 
 	var iconHash string
 	if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", userModel.ID); err != nil {

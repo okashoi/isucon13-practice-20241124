@@ -256,3 +256,18 @@ func errorResponseHandler(err error, c echo.Context) {
 		c.Logger().Errorf("%+v", e)
 	}
 }
+
+func getUserTheme(userID int64) (ThemeModel, error) {
+	if theme, ok := userThemeCache.Load(userID); ok {
+		return theme.(ThemeModel), nil
+	}
+
+	themeModel := ThemeModel{}
+	if err := dbConn.Get(&themeModel, "SELECT * FROM themes WHERE user_id = ?", userID); err != nil {
+		return ThemeModel{}, err
+	}
+
+	userThemeCache.Store(userID, themeModel)
+
+	return themeModel, nil
+}
