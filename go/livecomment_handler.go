@@ -582,7 +582,9 @@ func fillLivecommentReportResponse(ctx context.Context, tx *sqlx.Tx, reportModel
 
 	livecommentModel := LivecommentModel{}
 	if err := tx.GetContext(ctx, &livecommentModel, "SELECT * FROM livecomments WHERE id = ?", reportModel.LivecommentID); err != nil {
-		return LivecommentReport{}, err
+		if !errors.Is(err, sql.ErrNoRows) {
+			return LivecommentReport{}, err
+		}
 	}
 	livecomment, err := fillLivecommentResponse(ctx, tx, livecommentModel)
 	if err != nil {
