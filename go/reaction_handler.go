@@ -182,10 +182,18 @@ func getReactionsHandler(c echo.Context) error {
 	if livestream.LivestreamOwnerIconImage != nil {
 		livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(livestream.LivestreamOwnerIconImage))
 	}
+
+	userIconHashCache := make(map[int64]string)
 	for i := range reactions {
-		userIconHash := fallbackImageHash
-		if reactions[i].UserIconImage != nil {
-			userIconHash = fmt.Sprintf("%x", sha256.Sum256(reactions[i].UserIconImage))
+		var userIconHash string
+		if c, ok := userIconHashCache[reactions[i].UserID]; ok {
+			userIconHash = c
+		} else {
+			userIconHash = fallbackImageHash
+			if reactions[i].UserIconImage != nil {
+				userIconHash = fmt.Sprintf("%x", sha256.Sum256(reactions[i].UserIconImage))
+			}
+			userIconHashCache[reactions[i].UserID] = userIconHash
 		}
 
 		reactionsResponse[i] = Reaction{
