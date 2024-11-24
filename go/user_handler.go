@@ -106,6 +106,7 @@ func getIconHandler(c echo.Context) error {
 
 	ifNoneMatch := c.Request().Header.Get("if-none-match")
 	if ifNoneMatch != "" {
+		ifNoneMatch = ifNoneMatch[1 : len(ifNoneMatch)-1] // remove double quotes
 		var iconHash string
 		if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", user.ID); err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
