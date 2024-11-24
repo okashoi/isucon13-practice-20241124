@@ -159,7 +159,7 @@ func getReactionsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
 
-	reactionsResponse := []Reaction{}
+	reactionsResponse := make([]Reaction, len(reactions))
 	image, err := os.ReadFile(fallbackImage)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
