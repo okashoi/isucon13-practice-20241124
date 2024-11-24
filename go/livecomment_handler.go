@@ -340,8 +340,52 @@ func postLivecommentHandler(c echo.Context) error {
 	}
 	defer tx.Rollback()
 
-	var livestreamModel LivestreamModel
-	if err := tx.GetContext(ctx, &livestreamModel, "SELECT * FROM livestreams WHERE id = ?", livestreamID); err != nil {
+	type LivestreamWithDetail struct {
+		LivestreamID               int64  `db:"livestream_id"`
+		LivestreamOwnerID          int64  `db:"livestream_owner_id"`
+		LivestreamOwnerName        string `db:"livestream_owner_name"`
+		LivestreamOwnerDisplayName string `db:"livestream_owner_display_name"`
+		LivestreamOwnerDescription string `db:"livestream_owner_description"`
+		LivestreamOwnerThemeID     int64  `db:"livestream_owner_theme_id"`
+		LivestreamOwnerDarkMode    bool   `db:"livestream_owner_dark_mode"`
+		LivestreamOwnerIconImage   []byte `db:"livestream_owner_icon_image"`
+		LivestreamTitle            string `db:"livestream_title"`
+		LivestreamDescription      string `db:"livestream_description"`
+		LivestreamPlaylistURL      string `db:"livestream_playlist_url"`
+		LivestreamThumbnailURL     string `db:"livestream_thumbnail_url"`
+		LivestreamStartAt          int64  `db:"livestream_start_at"`
+		LivestreamEndAt            int64  `db:"livestream_end_at"`
+	}
+	livestream := LivestreamWithDetail{}
+	query := `
+    SELECT 
+        ls.id AS livestream_id,
+        ls.title AS livestream_title,
+        ls.description AS livestream_description,
+        ls.playlist_url AS livestream_playlist_url,
+        ls.thumbnail_url AS livestream_thumbnail_url,
+        ls.start_at AS livestream_start_at,
+        ls.end_at AS livestream_end_at,
+		o.id AS livestream_owner_id,
+        o.name AS livestream_owner_name,
+        o.display_name AS livestream_owner_display_name,
+        o.description AS livestream_owner_description,
+        ot.id AS livestream_owner_theme_id,
+        ot.dark_mode AS livestream_owner_dark_mode,
+        oi.image AS livestream_owner_icon_image
+    FROM 
+        livestreams ls
+    INNER JOIN
+		users o ON ls.user_id = o.id
+	LEFT JOIN
+		themes ot ON o.id = ot.user_id
+	LEFT JOIN
+		icons oi ON o.id = oi.user_id
+    WHERE 
+        ls.id = ?
+`
+
+	if err = tx.GetContext(ctx, &livestream, query, livestreamID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, "livestream not found")
 		} else {
@@ -351,7 +395,7 @@ func postLivecommentHandler(c echo.Context) error {
 
 	// スパム判定
 	var ngwords []*NGWord
-	if err := tx.SelectContext(ctx, &ngwords, "SELECT id, user_id, livestream_id, word FROM ng_words WHERE user_id = ? AND livestream_id = ?", livestreamModel.UserID, livestreamModel.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := tx.SelectContext(ctx, &ngwords, "SELECT id, user_id, livestream_id, word FROM ng_words WHERE user_id = ? AND livestream_id = ?", livestream.LivestreamOwnerID, livestream.LivestreamID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get NG words: "+err.Error())
 	}
 
@@ -381,13 +425,103 @@ func postLivecommentHandler(c echo.Context) error {
 	}
 	livecommentModel.ID = livecommentID
 
-	livecomment, err := fillLivecommentResponse(ctx, tx, livecommentModel)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fill livecomment: "+err.Error())
+	type UserWithDetails struct {
+		UserID          int64  `db:"user_id"`
+		UserName        string `db:"user_name"`
+		UserDisplayName string `db:"user_display_name"`
+		UserDescription string `db:"user_description"`
+		UserThemeID     int64  `db:"user_theme_id"`
+		UserDarkMode    bool   `db:"user_dark_mode"`
+		UserIconImage   []byte `db:"user_icon_image"`
+	}
+	user := UserWithDetails{}
+	query = `
+    SELECT 
+        u.id AS user_id,
+        u.name AS user_name,
+        u.display_name AS user_display_name,
+        u.description AS user_description,
+        ut.id AS user_theme_id,
+        ut.dark_mode AS user_dark_mode,
+        ui.image AS user_icon_image
+    FROM users u
+	LEFT JOIN
+		themes ut ON u.id = ut.user_id
+	LEFT JOIN
+		icons ui ON u.id = ui.user_id
+    WHERE 
+        u.id = ?
+`
+	if err := tx.GetContext(ctx, &user, query, userID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user: "+err.Error())
+	}
+
+	var tags []Tag
+	query = "SELECT tags.* FROM tags JOIN livestream_tags ON tags.id = livestream_tags.tag_id WHERE livestream_tags.livestream_id = ?"
+	err = tx.SelectContext(ctx, &tags, query, livestreamID)
+	if !errors.Is(err, sql.ErrNoRows) && err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get tags: "+err.Error())
+	}
+	if tags == nil {
+		tags = []Tag{}
 	}
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
+	}
+
+	image, err := os.ReadFile(fallbackImage)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed read fallback image: "+err.Error())
+	}
+	fallbackImageHash := fmt.Sprintf("%x", sha256.Sum256(image))
+
+	livestreamOwnerIconHash := fallbackImageHash
+	if livestream.LivestreamOwnerIconImage != nil {
+		livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(livestream.LivestreamOwnerIconImage))
+	}
+	userIconHash := fallbackImageHash
+	if user.UserIconImage != nil {
+		userIconHash = fmt.Sprintf("%x", sha256.Sum256(user.UserIconImage))
+	}
+
+	livecomment := Livecomment{
+		ID: livecommentModel.ID,
+		User: User{
+			ID:          user.UserID,
+			Name:        user.UserName,
+			DisplayName: user.UserDisplayName,
+			Description: user.UserDescription,
+			Theme: Theme{
+				ID:       user.UserThemeID,
+				DarkMode: user.UserDarkMode,
+			},
+			IconHash: userIconHash,
+		},
+		Livestream: Livestream{
+			ID: livestream.LivestreamID,
+			Owner: User{
+				ID:          livestream.LivestreamOwnerID,
+				Name:        livestream.LivestreamOwnerName,
+				DisplayName: livestream.LivestreamOwnerDisplayName,
+				Description: livestream.LivestreamOwnerDescription,
+				Theme: Theme{
+					ID:       livestream.LivestreamOwnerThemeID,
+					DarkMode: livestream.LivestreamOwnerDarkMode,
+				},
+				IconHash: livestreamOwnerIconHash,
+			},
+			Title:        livestream.LivestreamTitle,
+			Description:  livestream.LivestreamDescription,
+			PlaylistUrl:  livestream.LivestreamPlaylistURL,
+			ThumbnailUrl: livestream.LivestreamThumbnailURL,
+			StartAt:      livestream.LivestreamStartAt,
+			EndAt:        livestream.LivestreamEndAt,
+			Tags:         tags,
+		},
+		Comment:   livecommentModel.Comment,
+		Tip:       livecommentModel.Tip,
+		CreatedAt: livecommentModel.CreatedAt,
 	}
 
 	return c.JSON(http.StatusCreated, livecomment)
