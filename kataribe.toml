@@ -95,6 +95,10 @@ name = 'GET /api/user/[\w]+/statistics'
 regexp = 'GET /api/user/[\w]+/icon'
 name = 'GET /api/user/[\w]+/icon'
 
+[[bundle]]
+regexp = 'GET /api/livestream/search\?tag=.+'
+name = 'GET /api/livestream/search?tag=.+'
+
 #[[bundle]]
 #regexp = '^(GET|HEAD) /stylesheets/'
 #name = 'GET /stylesheets/*'
