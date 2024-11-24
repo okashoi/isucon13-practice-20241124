@@ -216,10 +216,17 @@ func getLivecommentsHandler(c echo.Context) error {
 		livestreamOwnerIconHash = fmt.Sprintf("%x", sha256.Sum256(livestream.LivestreamOwnerIconImage))
 	}
 
+	userIconHashCache := map[int64]string{}
 	for i := range comments {
-		userIconHash := fallbackImageHash
-		if comments[i].UserIconImage != nil {
-			userIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage))
+		var userIconHash string
+		if c, ok := userIconHashCache[comments[i].UserID]; ok {
+			userIconHash = c
+		} else {
+			userIconHash = fallbackImageHash
+			if comments[i].UserIconImage != nil {
+				userIconHash = fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage))
+			}
+			userIconHashCache[comments[i].UserID] = userIconHash
 		}
 
 		livecomments[i] = Livecomment{
