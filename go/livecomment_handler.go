@@ -462,6 +462,9 @@ func postLivecommentHandler(c echo.Context) error {
 	if !errors.Is(err, sql.ErrNoRows) && err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get tags: "+err.Error())
 	}
+	if tags == nil {
+		tags = []Tag{}
+	}
 
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
