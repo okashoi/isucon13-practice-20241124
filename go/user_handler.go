@@ -281,9 +281,16 @@ func registerHandler(c echo.Context) error {
 		UserID:   userID,
 		DarkMode: req.Theme.DarkMode,
 	}
-	if _, err := tx.NamedExecContext(ctx, "INSERT INTO themes (user_id, dark_mode) VALUES(:user_id, :dark_mode)", themeModel); err != nil {
+	r, err := tx.NamedExecContext(ctx, "INSERT INTO themes (user_id, dark_mode) VALUES(:user_id, :dark_mode)", themeModel)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert user theme: "+err.Error())
 	}
+	themeId, err := r.LastInsertId()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted theme id: "+err.Error())
+	}
+	themeModel.ID = themeId
+	userThemeCache.Store(userID, themeModel)
 
 	if out, err := exec.Command("pdnsutil", "add-record", "t.isucon.pw", req.Name, "A", "60", powerDNSSubdomainAddress).CombinedOutput(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, string(out)+": "+err.Error())
@@ -439,10 +446,11 @@ func verifyUserSession(c echo.Context) error {
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
-	themeModel := ThemeModel{}
-	if err := tx.GetContext(ctx, &themeModel, "SELECT * FROM themes WHERE user_id = ?", userModel.ID); err != nil {
-		return User{}, err
+	tc, ok := userThemeCache.Load(userModel.ID)
+	if !ok {
+		return User{}, fmt.Errorf("theme not found for user %d", userModel.ID)
 	}
+	themeModel := tc.(ThemeModel)
 
 	var iconHash string
 	if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", userModel.ID); err != nil {

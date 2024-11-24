@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -116,10 +117,29 @@ func initializeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize: "+err.Error())
 	}
 
+	makeUserThemeCache()
+
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
 		Language: "golang",
 	})
+}
+
+var (
+	userThemeCache = sync.Map{} // map[int64]ThemeModel
+)
+
+func makeUserThemeCache() {
+	themes := []ThemeModel{}
+	if err := dbConn.Select(&themes, "SELECT * FROM themes"); err != nil {
+		log.Printf("failed to select themes: %v", err)
+		return
+	}
+
+	userThemeCache = sync.Map{}
+	for _, theme := range themes {
+		userThemeCache.Store(theme.UserID, theme)
+	}
 }
 
 func main() {
@@ -201,6 +221,8 @@ func main() {
 	}
 	defer conn.Close()
 	dbConn = conn
+
+	makeUserThemeCache()
 
 	subdomainAddr, ok := os.LookupEnv(powerDNSSubdomainAddressEnvKey)
 	if !ok {
