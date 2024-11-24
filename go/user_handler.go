@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -85,6 +86,10 @@ type PostIconResponse struct {
 	ID int64 `json:"id"`
 }
 
+var (
+	iconHashMap = sync.Map{} // map[int64]string
+)
+
 func getIconHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 
@@ -107,6 +112,12 @@ func getIconHandler(c echo.Context) error {
 	ifNoneMatch := c.Request().Header.Get("if-none-match")
 	if ifNoneMatch != "" {
 		ifNoneMatch = ifNoneMatch[1 : len(ifNoneMatch)-1] // remove double quotes
+
+		cachedIconHash, ok := iconHashMap.Load(user.ID)
+		if ok && ifNoneMatch == cachedIconHash {
+			return c.NoContent(http.StatusNotModified)
+		}
+
 		var iconHash string
 		if err := tx.GetContext(ctx, &iconHash, "SELECT `hash` FROM icons WHERE user_id = ?", user.ID); err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
@@ -114,6 +125,7 @@ func getIconHandler(c echo.Context) error {
 			}
 		}
 		if ifNoneMatch == iconHash {
+			iconHashMap.Store(user.ID, iconHash)
 			return c.NoContent(http.StatusNotModified)
 		}
 	}
@@ -126,6 +138,8 @@ func getIconHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user icon: "+err.Error())
 		}
 	}
+
+	iconHashMap.Store(user.ID, fmt.Sprintf("%x", sha256.Sum256(image)))
 
 	return c.Blob(http.StatusOK, "image/jpeg", image)
 }
@@ -167,6 +181,8 @@ func postIconHandler(c echo.Context) error {
 	if err := tx.Commit(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
+
+	iconHashMap.Store(userID, fmt.Sprintf("%x", sha256.Sum256(req.Image)))
 
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
