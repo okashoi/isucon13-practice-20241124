@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -205,7 +206,7 @@ func getLivecommentsHandler(c echo.Context) error {
 					ID:       comments[i].UserThemeID,
 					DarkMode: comments[i].UserDarkMode,
 				},
-				IconHash: fmt.Sprintf("%x", comments[i].UserIconImage),
+				IconHash: fmt.Sprintf("%x", sha256.Sum256(comments[i].UserIconImage)),
 			},
 			Livestream: Livestream{
 				ID: comments[i].LivestreamID,
@@ -218,7 +219,7 @@ func getLivecommentsHandler(c echo.Context) error {
 						ID:       comments[i].LivestreamOwnerThemeID,
 						DarkMode: comments[i].LivestreamOwnerDarkMode,
 					},
-					IconHash: fmt.Sprintf("%x", comments[i].LivestreamOwnerIconImage),
+					IconHash: fmt.Sprintf("%x", sha256.Sum256(comments[i].LivestreamOwnerIconImage)),
 				},
 				Title:        comments[i].LivestreamTitle,
 				Description:  comments[i].LivestreamDescription,
